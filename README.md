@@ -26,9 +26,12 @@ re-rooted or re-created without touching a single line of Zeta's history.
 
 ```
 by-day/YYYY/MM/DD/     every dated record lands here, and ONLY here
-current/               small always-current snapshots (latest tick, rosters)
 schema/                what the records mean
 ```
+
+There is deliberately **no `current/` directory**. See "Reading the latest" below —
+an always-current file committed to git does not grow, but its *history* does,
+forever, which is the exact cost this repository exists to avoid.
 
 `by-day/` is the whole retention mechanism. Rolling off a month is:
 
@@ -41,23 +44,43 @@ the property being bought — and it is why a dated record must never be written
 anywhere except under `by-day/`. A file that escapes the date partition is a file
 the rollover cannot find.
 
-`current/` is deliberately tiny and is *overwritten*, never appended. Anything that
-grows without bound belongs in `by-day/`.
+Everything that is written lands in `by-day/`. Nothing is overwritten in place.
 
 ## Reading this data from Zeta's GitHub Page
 
 Both hosts send `access-control-allow-origin: *` (verified 2026-08-29), so a static
 page can fetch from here directly with no token and no proxy:
 
+### Reading the latest — and why it is not a file in this repo
+
+`publish-latest.yml` assembles the newest record of each kind and publishes it as a
+**GitHub Pages artifact**. Actions uploads that artifact; it is never committed, so
+republishing it every few minutes costs **zero git history**. That is the whole
+point: a committed `current/tick-latest.json` would be a new blob on every write,
+forever.
+
 ```js
 const res  = await fetch(
-  "https://raw.githubusercontent.com/Lucent-Financial-Group/Zeta-Telemetry/main/current/tick-latest.json");
+  "https://lucent-financial-group.github.io/Zeta-Telemetry/latest/tick-latest.json");
 const tick = await res.json();
 ```
 
-`raw.githubusercontent.com` caches for 300s, which is well inside any telemetry
-refresh interval. The Pages build may also check this repository out at deploy time
-when a baked-in snapshot is preferable to a live fetch.
+`*.github.io` sends `access-control-allow-origin: *` (verified 2026-08-29, 600s
+cache), so Zeta's Page can read it with no token and no proxy. `_meta.json` beside
+it carries `generated_at` and `commit` so a consumer can distinguish fresh from
+stale instead of inferring it.
+
+Historical records are still readable straight from git when a consumer wants a
+specific day:
+
+```
+https://raw.githubusercontent.com/Lucent-Financial-Group/Zeta-Telemetry/main/by-day/2026/08/29/<record>.json
+```
+
+**Release assets were considered and rejected** for the browser path: they are also
+zero-history, but the redirect chain to `release-assets.githubusercontent.com`
+sends no ACAO header, so page JavaScript cannot read them cross-origin. They remain
+usable from CI and scripts.
 
 **This only works because this repository is public.** A private one would require a
 credential the page cannot safely hold. That is a constraint on the design, not a
@@ -65,5 +88,5 @@ preference.
 
 ## Retention
 
-Rolling window, currently **30 days** in `by-day/`. `current/` is exempt — it is
-bounded by construction.
+Rolling window, currently **30 days** in `by-day/`. Nothing else in this repository
+accumulates, so nothing else needs a policy.

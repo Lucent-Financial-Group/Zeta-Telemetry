@@ -1,0 +1,107 @@
+# Publish the CURRENT view of telemetry as a GitHub Pages artifact.
+#
+# WHY THIS EXISTS INSTEAD OF A COMMITTED `current/` DIRECTORY.
+#
+# A committed "always-current" file does not grow, but its HISTORY does: git writes
+# a new blob on every overwrite, forever. That is the exact failure this repository
+# was created to escape — Zeta's `data/tick-history.json` is a 291 KiB file that
+# cost 10.5 MiB of history in a single day across 37 rewrites.
+#
+# A Pages artifact is uploaded by Actions and never committed, so republishing it
+# costs ZERO git history. It is also readable cross-origin: *.github.io sends
+# `access-control-allow-origin: *` (verified 2026-08-29), so Zeta's own Page can
+# fetch it directly with no token and no proxy.
+#
+# Release assets are the other zero-history option and were REJECTED: the redirect
+# chain to release-assets.githubusercontent.com sends no ACAO header, so browser
+# JavaScript cannot read them cross-origin. They remain fine for CI and scripts.
+#
+# Deliberately slim: no toolchain install, no build matrix, no gate. Telemetry
+# should not pay a compiler's provisioning cost.
+
+name: publish-latest
+
+on:
+  push:
+    branches: [main]
+    paths: ["by-day/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Assemble latest/ from the newest by-day records
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p site/latest
+
+          # For each record KIND, the newest file under by-day/ wins. Kind is the
+          # basename, so by-day/2026/08/29/tick.json and by-day/2026/08/28/tick.json
+          # are the same kind and the later date is published.
+          shopt -s nullglob globstar
+          declare -A newest
+          for f in by-day/**/*.json; do
+            kind="$(basename "$f")"
+            # Paths sort lexicographically in date order because the layout is
+            # zero-padded YYYY/MM/DD -- so a plain string compare is a date compare.
+            if [[ -z "${newest[$kind]:-}" || "$f" > "${newest[$kind]}" ]]; then
+              newest[$kind]="$f"
+            fi
+          done
+
+          count=0
+          for kind in "${!newest[@]}"; do
+            cp "${newest[$kind]}" "site/latest/$kind"
+            echo "  $kind <- ${newest[$kind]}"
+            count=$((count + 1))
+          done
+
+          # An empty publish would silently serve a 404 that looks like "no data yet"
+          # rather than "the assembler found nothing". Say which it is.
+          echo "published $count record kind(s)"
+          if [ "$count" -eq 0 ]; then
+            echo "::warning::no by-day/**/*.json found; publishing an index only"
+          fi
+
+          # A machine-readable pointer so a consumer can tell FRESH from STALE
+          # without guessing from a filename.
+          {
+            echo '{'
+            echo "  \"generated_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+            echo "  \"commit\": \"${GITHUB_SHA}\","
+            echo "  \"record_kinds\": ${count}"
+            echo '}'
+          } > site/latest/_meta.json
+
+          cp README.md site/README.md 2>/dev/null || true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: site
+
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
