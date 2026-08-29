@@ -25,9 +25,13 @@ re-rooted or re-created without touching a single line of Zeta's history.
 ## Layout — the shape IS the retention policy
 
 ```
-by-day/YYYY/MM/DD/     every dated record lands here, and ONLY here
+by-day/YYYY/MM/DD/     MEASUREMENTS — rotates at 30 days
+corpus/                THE RECORD — never rotates
 schema/                what the records mean
 ```
+
+Two roots because there are two kinds of data with **opposite** retention needs, and
+a single policy over both is wrong in one direction or the other.
 
 There is deliberately **no `current/` directory**. See "Reading the latest" below —
 an always-current file committed to git does not grow, but its *history* does,
@@ -44,7 +48,17 @@ the property being bought — and it is why a dated record must never be written
 anywhere except under `by-day/`. A file that escapes the date partition is a file
 the rollover cannot find.
 
-Everything that is written lands in `by-day/`. Nothing is overwritten in place.
+Everything measured lands in `by-day/`. Nothing is overwritten in place.
+
+`corpus/` is the exception that proves the rule: it is append-only and **permanent**.
+It holds the PR review archives — review threads paired with the commits that
+resolved them — which are training data and are not reconstructible from the API
+once threads are edited or deleted. See `corpus/README.md`.
+
+The counter-intuitive part, measured: the permanent corpus costs **0.43 MiB/day**,
+while the *derivable index* pointing at it churned **65.35 MiB/day**. The valuable
+half is nearly free; the expensive half is the disposable one. A retention policy
+that treated both as "PR data" would delete the wrong one.
 
 ## Reading this data from Zeta's GitHub Page
 
@@ -88,5 +102,9 @@ preference.
 
 ## Retention
 
-Rolling window, currently **30 days** in `by-day/`. Nothing else in this repository
-accumulates, so nothing else needs a policy.
+**`by-day/` — rolling 30 days.** Measurements whose value decays.
+
+**`corpus/` — forever.** The record. A rollover job must never be able to reach it;
+see `corpus/README.md`.
+
+Nothing else in this repository accumulates, so nothing else needs a policy.
