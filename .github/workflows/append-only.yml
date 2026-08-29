@@ -1,0 +1,41 @@
+# Enforce the write-once invariant on records. See tools/check-append-only.sh.
+#
+# Slim by construction: bash and git, no toolchain, no matrix. The thing being
+# checked is a property of the diff, so nothing needs to be built to check it.
+
+name: append-only
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Records are written once, never rewritten
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+            # First push to a new branch reports an all-zero "before".
+            if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              echo "no usable base sha for this push; nothing to compare"
+              exit 0
+            fi
+          fi
+          ./tools/check-append-only.sh "$base" "${{ github.sha }}"
